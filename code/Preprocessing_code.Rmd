@@ -1,0 +1,239 @@
+---
+title: "Tratamiento de datos: Kickstarter Projects"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+---
+
+Caso práctico orientado a aprender a identificar los datos relevantes para un proyecto analítico y usar las herramientas de integración, limpieza, validación y análisis de las mismas.
+
+**Fuente de datos:** https://www.kaggle.com/kemical/kickstarter-projects
+
+# Manejador de librerias
+```{r}
+if (!require("pacman")){
+    install.packages("pacman")
+}
+suppressWarnings(library(pacman))
+pacman::p_load(dplyr, data.table, janitor, summarytools, lubridate, dlookr, nortest, DataExplorer, ggplot2)
+```
+
+# Carga de datos
+
+```{r}
+setwd("C:/Users/jreyrodr/OneDrive - Universitat Oberta de Catalunya/Master_UoC/Tipologia y ciclo de vida de los datos/repos/ciclo_vida_datos/")
+fname = 'ks-projects-201801.csv'
+ks_df = data.table::fread(fname, sep =',')
+```
+
+# Estandarización de nombres de las variables
+
+```{r}
+ks_df = janitor::clean_names(ks_df)
+```
+
+# Estructura del dataset
+
+```{r}
+print(summarytools::dfSummary(ks_df), method = 'render')
+```
+
+# Seleccionar casos completos (No NAs)
+
+```{r}
+ks_df = ks_df[complete.cases(ks_df), ]
+```
+
+# Limpieza de datos
+
+## Conversión variables categóricas
+
+```{r}
+categorical_data = c("category", "main_category", "currency", "state", "country")
+ks_df[,(categorical_data):= lapply(.SD, as.factor), .SDcols = categorical_data]
+sapply(ks_df[, ..categorical_data], class)
+```
+
+## Conversión varaible numéricas
+
+```{r}
+numerical_data = c("goal", "pledged", "backers", "usd_pledged", "usd_pledged_real", "usd_goal_real")
+ks_df[,(numerical_data):= lapply(.SD, as.numeric), .SDcols = numerical_data]
+sapply(ks_df[, ..numerical_data], class)
+```
+
+## Conversión variables fecha
+
+```{r}
+ks_df$deadline = lubridate::ymd(ks_df$deadline)
+ks_df$launched = lubridate::ymd_hms(ks_df$launched)
+```
+
+# Verificación no duplicados
+
+No existen duplicados
+
+```{r}
+ks_df_d <- distinct(ks_df)
+nrow(ks_df_d) == nrow(ks_df)
+```
+
+# Filtro de proyectos
+
+Interesa conocer los proyectos cancelados, en activo , exitosos...Luego, se  eliminan los registros con estado "undefined".
+
+```{r}
+ks_df = filter(ks_df, state != 'undefined')
+ks_df = droplevels(ks_df)
+```
+
+# Conversion
+
+Interesa saber el año de lanzamiento del proyecto y el periodo de recaudacion de fondos, más que las fechas concretas de lanzamiento y de finalizacion.
+
+```{r}
+ks_df$launch_year = as.integer(lubridate::year(ks_df$launched))
+ks_df$days_of_campaign = as.integer(ks_df$deadline - as.Date(ks_df$launched))
+ks_df = select(ks_df, -c(deadline, launched))
+```
+
+Interesa saber la diferencia entre la meta inicial y la meta de recaudo lograda.
+
+```{r}
+ks_df$diff_pledge_real = ks_df$usd_pledged_real - ks_df$usd_goal_real
+```
+
+# Valores perdidos en los paises codificados con el nombre N,0"
+
+Resulta imposible imputar estos valores pero se procede a codificarlos de una forma más representativa 
+
+```{r}
+table(ks_df$country)
+levels(ks_df$country)[levels(ks_df$country)=='N,0"'] <- "UNKNOWN"
+```
+
+# Valores extremos
+
+Resumen de valores extremos
+
+```{r}
+dlookr::diagnose_outlier(ks_df[, c("backers", "usd_goal_real", "usd_pledged_real", "days_of_campaign")])
+```
+
+Visualización de distribución de valores extremos con y sin.
+
+```{r}
+ks_df %>% plot_outlier(backers) 
+```
+
+```{r}
+ks_df %>% plot_outlier(usd_goal_real) 
+```
+
+```{r}
+ks_df %>% plot_outlier(usd_pledged_real) 
+```
+
+```{r}
+ks_df %>% plot_outlier(days_of_campaign) 
+```
+
+# Visualización variables discretas
+
+```{r}
+plot_bar(ks_df)
+```
+
+# Distribución de densidad de variables continuas
+
+```{r}
+plot_density(ks_df)
+```
+
+# Comprobación de la normalidad y homogeneidad de la varianza
+
+```{r}
+ks_df = as.data.frame(ks_df)
+alpha = 0.05
+col.names = colnames(ks_df)
+for (i in 1:ncol(ks_df)) {
+    if (i == 1) cat("Variables que no siguen una distribución normal:/n")
+    if (is.integer(ks_df[,i]) | is.numeric(ks_df[,i])) {
+        p_val = ad.test(ks_df[,i])$p.value
+        if (p_val < alpha) {
+            cat(col.names[i])
+            # Format output
+            if (i < ncol(ks_df) - 1) cat(", ")
+            if (i %% 3 == 0) cat("/n")
+        }
+    }
+}
+```
+
+# Quantile-quantile plots
+
+Se pueden apreciar las variables que mas se acercan a una distribución normal
+
+```{r}
+plot_qq(ks_df)
+```
+
+# Comprobación Homogenidad de varianzas
+
+En este caso, estudiaremos esta homogeneidad en cuanto a los grupos conformados por los tipos de categorias de crowdfunding. En el siguiente test, la hipótesis nula consiste en que ambas varianzas son iguales.
+
+```{r}
+fligner.test(usd_goal_real ~ main_category, data = ks_df)
+```
+
+Dado que se obtiene un p-valor inferior a 0.05, rechazamos la hipótesis de que las varianzas de que las muestras por categorias son homogéneas.
+
+# Correlación de variables númericas
+
+```{r}
+r = cor(ks_df[, c("goal", "backers", "usd_pledged",
+                  "usd_pledged_real", "usd_goal_real", "diff_pledge_real")], use="complete.obs")
+
+ggcorrplot::ggcorrplot(r,
+                       hc.order = TRUE,
+                       type = "lower",
+                       lab = TRUE)
+```
+
+# ¿Qué variables cuantitativas influyen más en la cantidad lograda en el crowdfunding?
+
+```{r}
+ks_df_s = select(ks_df, -c(usd_goal_real, diff_pledge_real))
+corr_matrix <- matrix(nc = 2, nr = 0)
+colnames(corr_matrix) <- c("estimate", "p-value")
+# Calcular el coeficiente de correlación para cada variable cuantitativa
+# con respecto al campo "usd_goal_real"
+for (i in 1:(ncol(ks_df_s))) {
+    if (is.integer(ks_df_s[,i]) | is.numeric(ks_df_s[,i])) {
+        spearman_test = cor.test(ks_df_s[,i],
+                                 ks_df_s[,length(ks_df_s)],
+                                 method = "spearman")
+        corr_coef = spearman_test$estimate
+        p_val = spearman_test$p.value
+        # Add row to matrix
+        pair = matrix(ncol = 2, nrow = 1)
+        pair[1][1] = corr_coef
+        pair[2][1] = p_val
+        corr_matrix <- rbind(corr_matrix, pair)
+        rownames(corr_matrix)[nrow(corr_matrix)] <- colnames(ks_df_s)[i]
+    }
+}
+
+print(corr_matrix)
+```
+
+Teniendo en cuenta variable con mayor estimado, la variable más relevante en la obtención de fondos para el crowdfunding, es la variable: **days_of_campaign**, dado que es el valor solicitado.
+
+# Exportación datos limpios
+
+```{r}
+write.csv(ks_df, "KS_projects_clean.csv")
+```
+
+
