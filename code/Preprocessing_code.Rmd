@@ -1,9 +1,11 @@
 ---
-title: "Tratamiento de datos: Kickstarter Projects"
+title: 'Tratamiento de datos: Kickstarter Projects'
 output:
   html_document:
     df_print: paged
-    toc: true
+    toc: yes
+  word_document:
+    toc: yes
 ---
 
 Caso práctico orientado a aprender a identificar los datos relevantes para un proyecto analítico y usar las herramientas de integración, limpieza, validación y análisis de las mismas.
@@ -22,7 +24,7 @@ pacman::p_load(dplyr, data.table, janitor, summarytools, lubridate, dlookr, nort
 # Carga de datos
 
 ```{r}
-setwd("C:/Users/jreyrodr/OneDrive - Universitat Oberta de Catalunya/Master_UoC/Tipologia y ciclo de vida de los datos/repos/ciclo_vida_datos/")
+setwd("C:/Users/jreyrodr/OneDrive - Universitat Oberta de Catalunya/Master_UoC/Tipologia y ciclo de vida de los datos/ciclo_vida_datos/data/")
 fname = 'ks-projects-201801.csv'
 ks_df = data.table::fread(fname, sep =',')
 ```
@@ -33,16 +35,15 @@ ks_df = data.table::fread(fname, sep =',')
 ks_df = janitor::clean_names(ks_df)
 ```
 
+```{r}
+goal_usd_us = ks_df[country == "US"]$usd_goal_real
+goal_usd_gb = ks_df[country == "GB"]$usd_goal_real
+```
+
 # Estructura del dataset
 
 ```{r}
 print(summarytools::dfSummary(ks_df), method = 'render')
-```
-
-# Seleccionar casos completos (No NAs)
-
-```{r}
-ks_df = ks_df[complete.cases(ks_df), ]
 ```
 
 # Limpieza de datos
@@ -70,7 +71,7 @@ ks_df$deadline = lubridate::ymd(ks_df$deadline)
 ks_df$launched = lubridate::ymd_hms(ks_df$launched)
 ```
 
-# Verificación no duplicados
+## Verificación no duplicados
 
 No existen duplicados
 
@@ -79,7 +80,12 @@ ks_df_d <- distinct(ks_df)
 nrow(ks_df_d) == nrow(ks_df)
 ```
 
-# Filtro de proyectos
+## Seleccion de datos
+```{r}
+ks_df <- select(ks_df, -c(goal, pledged, currency, usd_pledged))
+```
+
+## Reduccion de casos: Filtro de proyectos
 
 Interesa conocer los proyectos cancelados, en activo , exitosos...Luego, se  eliminan los registros con estado "undefined".
 
@@ -88,7 +94,7 @@ ks_df = filter(ks_df, state != 'undefined')
 ks_df = droplevels(ks_df)
 ```
 
-# Conversion
+## Conversion de variables: launched y deadline
 
 Interesa saber el año de lanzamiento del proyecto y el periodo de recaudacion de fondos, más que las fechas concretas de lanzamiento y de finalizacion.
 
@@ -104,7 +110,7 @@ Interesa saber la diferencia entre la meta inicial y la meta de recaudo lograda.
 ks_df$diff_pledge_real = ks_df$usd_pledged_real - ks_df$usd_goal_real
 ```
 
-# Valores perdidos en los paises codificados con el nombre N,0"
+## Valores perdidos en los paises codificados con el nombre N,0"
 
 Resulta imposible imputar estos valores pero se procede a codificarlos de una forma más representativa 
 
@@ -113,7 +119,7 @@ table(ks_df$country)
 levels(ks_df$country)[levels(ks_df$country)=='N,0"'] <- "UNKNOWN"
 ```
 
-# Valores extremos
+## Valores extremos
 
 Resumen de valores extremos
 
@@ -139,19 +145,21 @@ ks_df %>% plot_outlier(usd_pledged_real)
 ks_df %>% plot_outlier(days_of_campaign) 
 ```
 
-# Visualización variables discretas
+# Analisis de los datos
+
+## Visualización variables discretas
 
 ```{r}
 plot_bar(ks_df)
 ```
 
-# Distribución de densidad de variables continuas
+## Distribución de densidad de variables continuas
 
 ```{r}
 plot_density(ks_df)
 ```
 
-# Comprobación de la normalidad y homogeneidad de la varianza
+## Comprobación de la normalidad
 
 ```{r}
 ks_df = as.data.frame(ks_df)
@@ -171,7 +179,7 @@ for (i in 1:ncol(ks_df)) {
 }
 ```
 
-# Quantile-quantile plots
+## Quantile-quantile plots
 
 Se pueden apreciar las variables que mas se acercan a una distribución normal
 
@@ -179,7 +187,7 @@ Se pueden apreciar las variables que mas se acercan a una distribución normal
 plot_qq(ks_df)
 ```
 
-# Comprobación Homogenidad de varianzas
+## Comprobación Homogenidad de varianzas
 
 En este caso, estudiaremos esta homogeneidad en cuanto a los grupos conformados por los tipos de categorias de crowdfunding. En el siguiente test, la hipótesis nula consiste en que ambas varianzas son iguales.
 
@@ -189,11 +197,11 @@ fligner.test(usd_goal_real ~ main_category, data = ks_df)
 
 Dado que se obtiene un p-valor inferior a 0.05, rechazamos la hipótesis de que las varianzas de que las muestras por categorias son homogéneas.
 
-# Correlación de variables númericas
+## Correlación de variables númericas
 
 ```{r}
-r = cor(ks_df[, c("goal", "backers", "usd_pledged",
-                  "usd_pledged_real", "usd_goal_real", "diff_pledge_real")], use="complete.obs")
+r = cor(ks_df[, c("backers","usd_pledged_real", "usd_goal_real", "diff_pledge_real")], 
+        use="complete.obs")
 
 ggcorrplot::ggcorrplot(r,
                        hc.order = TRUE,
@@ -201,7 +209,7 @@ ggcorrplot::ggcorrplot(r,
                        lab = TRUE)
 ```
 
-# ¿Qué variables cuantitativas influyen más en la cantidad lograda en el crowdfunding?
+## ¿Qué variables cuantitativas influyen más en la cantidad lograda en el crowdfunding?
 
 ```{r}
 ks_df_s = select(ks_df, -c(usd_goal_real, diff_pledge_real))
@@ -229,6 +237,12 @@ print(corr_matrix)
 ```
 
 Teniendo en cuenta variable con mayor estimado, la variable más relevante en la obtención de fondos para el crowdfunding, es la variable: **days_of_campaign**, dado que es el valor solicitado.
+
+## ¿La meta recolectada es diferente entre los dos paises: US y GB?
+
+```{r}
+t.test(goal_usd_us, goal_usd_gb = "less")
+```
 
 # Exportación datos limpios
 
