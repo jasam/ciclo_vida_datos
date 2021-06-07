@@ -18,13 +18,14 @@ if (!require("pacman")){
     install.packages("pacman")
 }
 suppressWarnings(library(pacman))
-pacman::p_load(dplyr, data.table, janitor, summarytools, lubridate, dlookr, nortest, DataExplorer, ggplot2)
+pacman::p_load(dplyr, janitor, summarytools, lubridate, dlookr, nortest, DataExplorer, data.table, ggplot2)
 ```
 
 # Carga de datos
 
 ```{r}
 setwd("C:/Users/jreyrodr/OneDrive - Universitat Oberta de Catalunya/Master_UoC/Tipologia y ciclo de vida de los datos/ciclo_vida_datos/data/")
+#setwd("C:/Users/Usuario/Downloads/ciclo_vida_datos-main/data")
 fname = 'ks-projects-201801.csv'
 ks_df = data.table::fread(fname, sep =',')
 ```
@@ -33,11 +34,6 @@ ks_df = data.table::fread(fname, sep =',')
 
 ```{r}
 ks_df = janitor::clean_names(ks_df)
-```
-
-```{r}
-goal_usd_us = ks_df[country == "US"]$usd_goal_real
-goal_usd_gb = ks_df[country == "GB"]$usd_goal_real
 ```
 
 # Estructura del dataset
@@ -102,12 +98,6 @@ Interesa saber el año de lanzamiento del proyecto y el periodo de recaudacion d
 ks_df$launch_year = as.integer(lubridate::year(ks_df$launched))
 ks_df$days_of_campaign = as.integer(ks_df$deadline - as.Date(ks_df$launched))
 ks_df = select(ks_df, -c(deadline, launched))
-```
-
-Interesa saber la diferencia entre la meta inicial y la meta de recaudo lograda.
-
-```{r}
-ks_df$diff_pledge_real = ks_df$usd_pledged_real - ks_df$usd_goal_real
 ```
 
 ## Valores perdidos en los paises codificados con el nombre N,0"
@@ -192,7 +182,7 @@ plot_qq(ks_df)
 En este caso, estudiaremos esta homogeneidad en cuanto a los grupos conformados por los tipos de categorias de crowdfunding. En el siguiente test, la hipótesis nula consiste en que ambas varianzas son iguales.
 
 ```{r}
-fligner.test(usd_goal_real ~ main_category, data = ks_df)
+fligner.test(usd_pledged_real ~ main_category, data = ks_df)
 ```
 
 Dado que se obtiene un p-valor inferior a 0.05, rechazamos la hipótesis de que las varianzas de que las muestras por categorias son homogéneas.
@@ -200,7 +190,8 @@ Dado que se obtiene un p-valor inferior a 0.05, rechazamos la hipótesis de que 
 ## Correlación de variables númericas
 
 ```{r}
-r = cor(ks_df[, c("backers","usd_pledged_real", "usd_goal_real", "diff_pledge_real")], 
+r = cor(ks_df[, c("backers","usd_pledged_real", "usd_goal_real", "launch_year",
+                  "days_of_campaign")], 
         use="complete.obs")
 
 ggcorrplot::ggcorrplot(r,
@@ -212,15 +203,14 @@ ggcorrplot::ggcorrplot(r,
 ## ¿Qué variables cuantitativas influyen más en la cantidad lograda en el crowdfunding?
 
 ```{r}
-ks_df_s = select(ks_df, -c(usd_goal_real, diff_pledge_real))
 corr_matrix <- matrix(nc = 2, nr = 0)
 colnames(corr_matrix) <- c("estimate", "p-value")
 # Calcular el coeficiente de correlación para cada variable cuantitativa
-# con respecto al campo "usd_goal_real"
-for (i in 1:(ncol(ks_df_s))) {
-    if (is.integer(ks_df_s[,i]) | is.numeric(ks_df_s[,i])) {
-        spearman_test = cor.test(ks_df_s[,i],
-                                 ks_df_s[,length(ks_df_s)],
+# con respecto al campo "usd_pledged_real"
+for (i in 1:(ncol(ks_df))) {
+    if (is.integer(ks_df[,i]) | is.numeric(ks_df[,i])) {
+        spearman_test = cor.test(ks_df[,i],
+                                 ks_df[, "usd_pledged_real"],
                                  method = "spearman")
         corr_coef = spearman_test$estimate
         p_val = spearman_test$p.value
@@ -229,7 +219,7 @@ for (i in 1:(ncol(ks_df_s))) {
         pair[1][1] = corr_coef
         pair[2][1] = p_val
         corr_matrix <- rbind(corr_matrix, pair)
-        rownames(corr_matrix)[nrow(corr_matrix)] <- colnames(ks_df_s)[i]
+        rownames(corr_matrix)[nrow(corr_matrix)] <- colnames(ks_df)[i]
     }
 }
 
@@ -238,11 +228,22 @@ print(corr_matrix)
 
 Teniendo en cuenta variable con mayor estimado, la variable más relevante en la obtención de fondos para el crowdfunding, es la variable: **days_of_campaign**, dado que es el valor solicitado.
 
-## ¿La meta recolectada es diferente entre los dos paises: US y GB?
+## ¿La cantidad recaudada es diferente entre los dos paises: US y GB?
 
 ```{r}
+goal_usd_us = ks_df[ks_df$country=="US", "usd_pledged_real"]
+goal_usd_gb = ks_df[ks_df$country=="GB", "usd_pledged_real"]
 t.test(goal_usd_us, goal_usd_gb = "less")
 ```
+
+## Regresión lineal para predecir el estado del proyecto
+
+```{r}
+model_pledged <- lm(formula=usd_pledged_real~usd_goal_real+backers+
+               launch_year, data=ks_df)
+summary(model_pledged)
+```
+
 
 # Exportación datos limpios
 
